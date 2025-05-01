@@ -51,7 +51,7 @@ export default function Home() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
-  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0, left: 0, top: 0 });
 
   // Update image size when it loads
   useEffect(() => {
@@ -59,8 +59,13 @@ export default function Home() {
       const updateImageSize = () => {
         const img = imageContainerRef.current?.querySelector('img');
         if (img) {
-          const { width, height } = img.getBoundingClientRect();
-          setImageSize({ width, height });
+          const rect = img.getBoundingClientRect();
+          setImageSize({ 
+            width: rect.width, 
+            height: rect.height,
+            left: img.offsetLeft,  // Get the exact left offset of the image
+            top: img.offsetTop     // Get the exact top offset of the image
+          });
         }
       };
       
@@ -354,7 +359,7 @@ export default function Home() {
                     <img 
                       src={imageData} 
                       alt="Generated Battlemap"
-                      className="max-w-full max-h-[80vh]"
+                      className="max-w-full max-h-[80vh] object-contain"
                     />
                   ) : (
                     <div className="w-full h-[50vh] bg-gray-700 flex items-center justify-center text-gray-400">
@@ -365,46 +370,50 @@ export default function Home() {
                   {/* Light overlay */}
                   {showLights && lightSources.length > 0 && imageSize.width > 0 && (
                     <div 
-                      className="absolute top-0 left-0 pointer-events-none"
-                      style={{ width: `${imageSize.width}px`, height: `${imageSize.height}px` }}
+                      className="absolute pointer-events-none"
+                      style={{ 
+                        width: `${imageSize.width}px`, 
+                        height: `${imageSize.height}px`,
+                        left: imageSize.left || 0,
+                        top: imageSize.top || 0,
+                        // Add red border for debugging
+                        border: '1px dashed rgba(255,0,0,0.2)'
+                      }}
                     >
                       {lightSources.map((light, index) => {
-                        // Scale coordinates if image is being displayed at a different size
-                        // Claude gives us coords for a 1024x1024 image
-                        const scale = imageSize.width / 1024;
+                        // IMPORTANT: No scaling - use raw pixel values directly
+                        // BUT we need to account for when the image is displayed smaller than 1024x1024
+                        const displayRatio = imageSize.width / 1024;
                         
-                        // Get pixel coordinates directly from API (now in pixels, not normalized)
-                        const x = light.x * scale;
-                        const y = light.y * scale;
-                        const width = light.width * scale;
-                        const height = light.height * scale;
+                        // Apply the ratio to position and size
+                        const x = light.x * displayRatio;
+                        const y = light.y * displayRatio;
+                        const width = light.width * displayRatio;
+                        const height = light.height * displayRatio;
                         
-                        // Calculate the center point from the top-left coordinates
+                        // Calculate center point
                         const centerX = x + (width / 2);
                         const centerY = y + (height / 2);
                         
-                        // Use the actual dimensions for radius
+                        // Calculate radius
                         const radius = Math.max(width, height) / 2;
-                        // Make sure radius isn't too small
-                        const minRadius = Math.min(imageSize.width, imageSize.height) * 0.025;
-                        const finalRadius = Math.max(radius, minRadius);
-                        const solidRadius = finalRadius * 0.3;
+                        const solidRadius = radius * 0.3;
                         
-                        // For torch-like lights, use a more orange/yellow glow
-                        // For magical lights (blue/green), use a more ethereal effect
-                        const isWarmLight = light.hexColor.toLowerCase().includes('f') && 
-                                          !light.hexColor.toLowerCase().includes('0f');
+                        // Log coordinates for debugging
+                        console.log(`Light #${index}: pos(${x.toFixed(0)},${y.toFixed(0)}), actual light pos(${light.x},${light.y}), ratio: ${displayRatio}`);
                         
+                        // Determine light type
+                        const isWarmLight = light.hexColor.toLowerCase().includes('f');
                         const glowOpacity = isWarmLight ? 0.6 : 0.5;
                         const glowSize = isWarmLight ? '60%' : '70%';
                         const mixMode = isWarmLight ? 'screen' : 'lighten';
                         
                         return (
                           <div key={index} className="absolute" style={{
-                            left: `${centerX - finalRadius}px`,
-                            top: `${centerY - finalRadius}px`,
-                            width: `${finalRadius * 2}px`,
-                            height: `${finalRadius * 2}px`,
+                            left: `${centerX - radius}px`,
+                            top: `${centerY - radius}px`,
+                            width: `${radius * 2}px`,
+                            height: `${radius * 2}px`,
                             pointerEvents: 'none',
                           }}>
                             {/* Outer glow */}
@@ -422,8 +431,8 @@ export default function Home() {
                             <div
                               className="absolute rounded-full"
                               style={{
-                                left: `${finalRadius - solidRadius}px`,
-                                top: `${finalRadius - solidRadius}px`,
+                                left: `${radius - solidRadius}px`,
+                                top: `${radius - solidRadius}px`,
                                 width: `${solidRadius * 2}px`,
                                 height: `${solidRadius * 2}px`,
                                 backgroundColor: light.hexColor,

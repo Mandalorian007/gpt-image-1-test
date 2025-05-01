@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenAI, createUserContent } from '@google/genai';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const anthropic = new Anthropic({
-  apiKey: process.env.CLAUDE_API_KEY || '',
-});
+const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 const BATTLEMAP_PROMPT_TEMPLATE = `Generate a high-resolution, hand-drawn style top-down 2D dungeon battlemap optimized for virtual tabletops (e.g., Roll20, FoundryVTT).
 
@@ -118,13 +117,25 @@ async function generateImage(prompt: string): Promise<string | null> {
 }
 
 /**
- * Detect light sources in an image using Claude
+ * Detect light sources in an image using Gemini
  */
-async function detectLightSources(b64Image: string | null): Promise<{
-  lightSources: any[];
+async function geminiGenerateLights(b64Image: string | null): Promise<{
+  lightSources: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    hexColor: string;
+  }>;
   lightError: string | null;
 }> {
-  let lightSources = [];
+  let lightSources: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    hexColor: string;
+  }> = [];
   let lightError = null;
   
   if (!b64Image) {
@@ -135,76 +146,104 @@ async function detectLightSources(b64Image: string | null): Promise<{
   }
   
   try {
-    // Light detection prompt
-    const lightDetectionPrompt = `Analyze this image and identify all light sources.
-
-You MUST respond ONLY with a valid JSON array and nothing else. No explanations, no markdown.
-
-For each light source, provide:
-1. A bounding box with coordinates (x, y, width, height) where x and y are the top-left corner IN PIXELS.
-2. The hexadecimal color code of the light source.
-
-The image is 1024x1024 pixels.
-
-JSON format:
-[
-  { "x": 100, "y": 200, "width": 50, "height": 50, "hexColor": "#FFAA00" }
-]
-
-Include magical glows, torches, lanterns, glowing crystals, runes, and any bright objects.
-Your ENTIRE response must be ONLY valid JSON.`;
-
-    // Make sure we have a valid base64 string for Claude
+    // Make sure we have a valid base64 string
     let processedB64 = b64Image;
     // Remove any data URL prefix if it somehow got included
     if (processedB64.includes(',')) {
       processedB64 = processedB64.split(',')[1];
     }
     
-    // Claude doesn't support data URLs directly, so send base64 in the content directly
-    const lightDetectionResponse = await anthropic.messages.create({
-      model: "claude-3-7-sonnet-20250219",
-      max_tokens: 1000,
-      system: "You are an AI specialized in detecting light sources in images. You MUST respond with ONLY a valid JSON array in the exact format requested, with no additional text.",
-      messages: [
+    // Prompt to detect light sources and return bounding boxes
+    const lightDetectionPrompt = `Analyze this image and extract all light sources (torches, magical glows, fires, crystals, runes, etc).
+
+Follow these steps sequentially with ABSOLUTE PRECISION:
+
+1. Create an array of bounding boxes for each light source using [ymin, xmin, ymax, xmax] normalized to 0-1000
+   - ymin and xmin should be the exact top-left corner of each light source
+   - ymax and xmax should be the exact bottom-right corner of each light source
+   - Measure from the brightest/most visible part of each light
+   - Coordinates must be accurate to avoid rendering errors
+   
+   Example: [
+     {"box_2d": [200, 300, 250, 350]},
+     {"box_2d": [500, 600, 550, 650]}
+   ]
+
+2. Add the hexColor property to each entry representing the overall dominant color of the light source
+   - Use standard 6-digit hexadecimal format with # prefix (e.g., "#FF9900" for orange light)
+   - For magical lights, use the actual glow color (e.g., blue, green, purple)
+   - For fire/torches, use the flame color (typically orange/yellow)
+
+   Example: [
+     {"box_2d": [200, 300, 250, 350], "hexColor": "#FF9900"},
+     {"box_2d": [500, 600, 550, 650], "hexColor": "#00CCFF"}
+   ]
+
+3. Convert to the final format with properties: x, y, width, height, hexColor
+   - x: xmin * 1.024 (normalized to pixels, must be integer)
+   - y: ymin * 1.024 (normalized to pixels, must be integer)
+   - width: (xmax - xmin) * 1.024 (width in pixels, must be integer)
+   - height: (ymax - ymin) * 1.024 (height in pixels, must be integer)
+   
+   Final example: [
+     {"x": 307, "y": 204, "width": 51, "height": 52, "hexColor": "#FF9900"},
+     {"x": 614, "y": 512, "width": 51, "height": 51, "hexColor": "#00CCFF"}
+   ]
+
+IMPORTANT: Return ONLY a valid JSON array with the final format (step 3) containing EXACT integer pixel coordinates. No explanation text, no code blocks, and no additional formatting. The output must be directly machine-parseable.`;
+
+    // Using the correct structure for the @google/genai package
+    const response = await genAI.models.generateContent({
+      model: "gemini-2.5-flash-preview-04-17", //"gemini-2.0-flash",
+      contents: createUserContent([
         {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/png",
-                data: processedB64,
-              },
-            },
-            {
-              type: "text",
-              text: lightDetectionPrompt,
-            },
-          ],
+          inlineData: {
+            mimeType: "image/png",
+            data: processedB64
+          }
         },
-      ],
+        lightDetectionPrompt
+      ]),
     });
     
-    // Extract the text content from Claude's response
-    let claudeResponseText = '';
-    for (const contentBlock of lightDetectionResponse.content) {
-      if (contentBlock.type === 'text') {
-        claudeResponseText = contentBlock.text;
-        break;
-      }
+    const responseText = response.text || '';
+    
+    // Extract JSON from the response text
+    let parsedResult = extractJsonFromText(responseText);
+    
+    // No conversion needed - Gemini has done the conversion for us
+    if (parsedResult && Array.isArray(parsedResult) && parsedResult.length > 0) {
+      lightSources = parsedResult.map(item => {
+        // Validate the required fields
+        if (typeof item.x !== 'number' || typeof item.y !== 'number' || 
+            typeof item.width !== 'number' || typeof item.height !== 'number') {
+          console.error("Invalid light source data:", item);
+          return null;
+        }
+        
+        return {
+          x: item.x,
+          y: item.y,
+          width: item.width,
+          height: item.height,
+          hexColor: item.hexColor || "#FFAA00" // Default to amber if no color provided
+        };
+      }).filter(Boolean) as Array<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        hexColor: string;
+      }>;
     }
     
-    // Use our robust JSON extraction function
-    lightSources = extractJsonFromText(claudeResponseText);
     if (lightSources.length === 0) {
-      lightError = "No light sources detected or unable to parse JSON response";
+      lightError = "No light sources detected or unable to parse JSON response from Gemini";
     }
   } catch (err) {
-    console.error("Error detecting lights with Claude:", err);
+    console.error("Error detecting lights with Gemini:", err);
     lightSources = [];
-    lightError = "Claude API error: " + (err instanceof Error ? err.message : String(err));
+    lightError = "Gemini API error: " + (err instanceof Error ? err.message : String(err));
   }
   
   return {
@@ -232,7 +271,11 @@ export async function POST(request: NextRequest) {
     
     // Step 3: Detect light sources
     const lightsStartTime = Date.now();
-    const lightResult = { lightSources: [], lightError: null };//await detectLightSources(imageData?.split(',')[1] || null);
+    // Choose which light detection method to use (Claude or Gemini)
+    
+    // Use Gemini for light detection by default
+    const lightResult = await geminiGenerateLights(imageData?.split(',')[1] || null);
+    
     const lightsEndTime = Date.now();
     const lightsTimeTaken = lightsEndTime - lightsStartTime;
     
