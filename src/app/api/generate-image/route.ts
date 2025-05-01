@@ -154,43 +154,19 @@ async function geminiGenerateLights(b64Image: string | null): Promise<{
     }
     
     // Prompt to detect light sources and return bounding boxes
-    const lightDetectionPrompt = `Analyze this image and extract all light sources (torches, magical glows, fires, crystals, runes, etc).
+    const lightDetectionPrompt = `Analyze this image and extract all light sources (torches, magical object glows, fires, crystals, runes, etc).
 
-Follow these steps sequentially with ABSOLUTE PRECISION:
+Return a JSON array with each light source having:
+1. A "box_2d" property with coordinates [ymin, xmin, ymax, xmax] normalized to 0-1000
+2. A "label" property describing the type of light source (e.g. "torch", "magical crystal", "glowing rune")
+3. A "hexColor" property with the dominant color in standard hex format (e.g. "#FF9900")
 
-1. Create an array of bounding boxes for each light source using [ymin, xmin, ymax, xmax] normalized to 0-1000
-   - ymin and xmin should be the exact top-left corner of each light source
-   - ymax and xmax should be the exact bottom-right corner of each light source
-   - Measure from the brightest/most visible part of each light
-   - Coordinates must be accurate to avoid rendering errors
-   
-   Example: [
-     {"box_2d": [200, 300, 250, 350]},
-     {"box_2d": [500, 600, 550, 650]}
-   ]
+Example: [
+  {"box_2d": [200, 300, 250, 350], "label": "torch", "hexColor": "#FF9900"},
+  {"box_2d": [500, 600, 550, 650], "label": "magic crystal", "hexColor": "#00CCFF"}
+]
 
-2. Add the hexColor property to each entry representing the overall dominant color of the light source
-   - Use standard 6-digit hexadecimal format with # prefix (e.g., "#FF9900" for orange light)
-   - For magical lights, use the actual glow color (e.g., blue, green, purple)
-   - For fire/torches, use the flame color (typically orange/yellow)
-
-   Example: [
-     {"box_2d": [200, 300, 250, 350], "hexColor": "#FF9900"},
-     {"box_2d": [500, 600, 550, 650], "hexColor": "#00CCFF"}
-   ]
-
-3. Convert to the final format with properties: x, y, width, height, hexColor
-   - x: xmin * 1.024 (normalized to pixels, must be integer)
-   - y: ymin * 1.024 (normalized to pixels, must be integer)
-   - width: (xmax - xmin) * 1.024 (width in pixels, must be integer)
-   - height: (ymax - ymin) * 1.024 (height in pixels, must be integer)
-   
-   Final example: [
-     {"x": 307, "y": 204, "width": 51, "height": 52, "hexColor": "#FF9900"},
-     {"x": 614, "y": 512, "width": 51, "height": 51, "hexColor": "#00CCFF"}
-   ]
-
-IMPORTANT: Return ONLY a valid JSON array with the final format (step 3) containing EXACT integer pixel coordinates. No explanation text, no code blocks, and no additional formatting. The output must be directly machine-parseable.`;
+IMPORTANT: Return ONLY a valid JSON array. No explanation text, no code blocks.`;
 
     // Using the correct structure for the @google/genai package
     const response = await genAI.models.generateContent({
@@ -211,28 +187,45 @@ IMPORTANT: Return ONLY a valid JSON array with the final format (step 3) contain
     // Extract JSON from the response text
     let parsedResult = extractJsonFromText(responseText);
     
-    // No conversion needed - Gemini has done the conversion for us
+    // Process normalized box_2d coordinates from Gemini
     if (parsedResult && Array.isArray(parsedResult) && parsedResult.length > 0) {
       lightSources = parsedResult.map(item => {
-        // Validate the required fields
-        if (typeof item.x !== 'number' || typeof item.y !== 'number' || 
-            typeof item.width !== 'number' || typeof item.height !== 'number') {
-          console.error("Invalid light source data:", item);
-          return null;
+        // Check if we have the expected box_2d format
+        if (Array.isArray(item.box_2d) && item.box_2d.length === 4) {
+          const [ymin, xmin, ymax, xmax] = item.box_2d;
+          
+          // Convert from 0-1000 normalized coordinates to 0-1 normalized
+          return {
+            x: xmin / 1000,
+            y: ymin / 1000,
+            width: (xmax - xmin) / 1000,
+            height: (ymax - ymin) / 1000,
+            label: item.label || "Unknown light source",
+            hexColor: item.hexColor || "#FFAA00" // Default to amber if no color provided
+          };
         }
         
-        return {
-          x: item.x,
-          y: item.y,
-          width: item.width,
-          height: item.height,
-          hexColor: item.hexColor || "#FFAA00" // Default to amber if no color provided
-        };
+        // Handle case where we might get direct x,y,width,height format (for backward compatibility)
+        if (typeof item.x === 'number' && typeof item.y === 'number' && 
+            typeof item.width === 'number' && typeof item.height === 'number') {
+          return {
+            x: item.x / 1024, // Normalize to 0-1
+            y: item.y / 1024,
+            width: item.width / 1024,
+            height: item.height / 1024,
+            label: item.label || "Unknown light source",
+            hexColor: item.hexColor || "#FFAA00"
+          };
+        }
+        
+        console.error("Invalid light source data:", item);
+        return null;
       }).filter(Boolean) as Array<{
         x: number;
         y: number;
         width: number;
         height: number;
+        label: string;
         hexColor: string;
       }>;
     }

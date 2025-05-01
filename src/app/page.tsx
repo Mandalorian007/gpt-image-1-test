@@ -10,6 +10,7 @@ type LightSource = {
   width: number;
   height: number;
   hexColor: string;
+  label?: string;
 };
 
 // Type for a single generation
@@ -39,6 +40,7 @@ export default function Home() {
   const [lightSources, setLightSources] = useState<LightSource[]>([]);
   const [lightError, setLightError] = useState<string | null>(null);
   const [showLights, setShowLights] = useState(true);
+  const [showAsBoxes, setShowAsBoxes] = useState(true);
   const [timings, setTimings] = useState<{
     promptGeneration: number;
     imageGeneration: number;
@@ -57,15 +59,19 @@ export default function Home() {
   useEffect(() => {
     if (imageData && imageContainerRef.current) {
       const updateImageSize = () => {
-        const img = imageContainerRef.current?.querySelector('img');
+        const container = imageContainerRef.current;
+        const img = container?.querySelector('img');
         if (img) {
-          const rect = img.getBoundingClientRect();
-          setImageSize({ 
-            width: rect.width, 
-            height: rect.height,
-            left: img.offsetLeft,  // Get the exact left offset of the image
-            top: img.offsetTop     // Get the exact top offset of the image
-          });
+          // Use a small delay to ensure the image has fully rendered
+          setTimeout(() => {
+            const rect = img.getBoundingClientRect();
+            setImageSize({ 
+              width: rect.width, 
+              height: rect.height,
+              left: 0,  // Not needed with the new overlay approach
+              top: 0    // Not needed with the new overlay approach
+            });
+          }, 0);
         }
       };
       
@@ -80,9 +86,13 @@ export default function Home() {
         img.onload = updateImageSize;
       }
       
+      // Also observe window resize events
+      window.addEventListener('resize', updateImageSize);
+      
       return () => {
         if (img) resizeObserver.unobserve(img);
         resizeObserver.disconnect();
+        window.removeEventListener('resize', updateImageSize);
       };
     }
   }, [imageData, activeTab]);
@@ -129,6 +139,7 @@ export default function Home() {
       setLightSources(data.lightSources || []);
       setLightError(data.lightError || null);
       setShowLights(true);
+      setShowAsBoxes(true);
       setTimings(data.timings);
       setActiveTab('image');
       
@@ -331,22 +342,44 @@ export default function Home() {
                 Light Details
               </button>
               
-              {/* Light toggle - simplified styling */}
+              {/* Light toggles */}
               {lightSources.length > 0 && (
-                <div className="ml-auto flex items-center mr-4">
-                  <span className="text-xs font-medium text-gray-400 mr-2">
-                    Show Lights
-                  </span>
-                  <label htmlFor="light-toggle" className="relative inline-block w-9 h-5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      id="light-toggle"
-                      checked={showLights}
-                      onChange={() => setShowLights(!showLights)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-blue-400 after:border-blue-400 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gray-600"></div>
-                  </label>
+                <div className="ml-auto flex items-center mr-4 gap-4">
+                  {/* Show Lights Toggle */}
+                  <div className="flex items-center">
+                    <span className="text-xs font-medium text-gray-400 mr-2">
+                      Show Lights
+                    </span>
+                    <label htmlFor="light-toggle" className="relative inline-block w-9 h-5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="light-toggle"
+                        checked={showLights}
+                        onChange={() => setShowLights(!showLights)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-blue-400 after:border-blue-400 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gray-600"></div>
+                    </label>
+                  </div>
+                  
+                  {/* Display Mode Toggle */}
+                  {showLights && (
+                    <div className="flex items-center">
+                      <span className="text-xs font-medium text-gray-400 mr-2">
+                        Show as Boxes
+                      </span>
+                      <label htmlFor="box-toggle" className="relative inline-block w-9 h-5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          id="box-toggle"
+                          checked={showAsBoxes}
+                          onChange={() => setShowAsBoxes(!showAsBoxes)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-blue-400 after:border-blue-400 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gray-600"></div>
+                      </label>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -356,93 +389,119 @@ export default function Home() {
               {activeTab === 'image' && (
                 <div className="flex justify-center relative" ref={imageContainerRef}>
                   {imageData ? (
-                    <img 
-                      src={imageData} 
-                      alt="Generated Battlemap"
-                      className="max-w-full max-h-[80vh] object-contain"
-                    />
+                    <div className="relative">
+                      <img 
+                        src={imageData} 
+                        alt="Generated Battlemap"
+                        className="max-w-full max-h-[80vh] object-contain"
+                      />
+                      
+                      {/* Light overlay - moved inside img container */}
+                      {showLights && lightSources.length > 0 && imageSize.width > 0 && (
+                        <div 
+                          className="absolute top-0 left-0 pointer-events-none"
+                          style={{ 
+                            width: '100%',
+                            height: '100%',
+                            // Add red border for debugging
+                            border: '1px dashed rgba(255,0,0,0.2)'
+                          }}
+                        >
+                          {lightSources.map((light, index) => {
+                            // Calculate scale ratio to convert from 1024x1024 to current display size
+                            const displayRatio = imageSize.width / 1024;
+                            
+                            // Apply the ratio to position and size
+                            const x = light.x * imageSize.width;
+                            const y = light.y * imageSize.height;
+                            const width = light.width * imageSize.width;
+                            const height = light.height * imageSize.height;
+                            
+                            // Calculate center point
+                            const centerX = x + (width / 2);
+                            const centerY = y + (height / 2);
+                            
+                            // Calculate radius for light source visualization
+                            const radius = Math.max(width, height) / 2;
+
+                            // Determine light type
+                            const isWarmLight = light.hexColor.toLowerCase().includes('f');
+                            const glowOpacity = isWarmLight ? 0.6 : 0.5;
+                            
+                            if (showAsBoxes) {
+                              // Bounding box rendering
+                              return (
+                                <div key={index} className="absolute" style={{
+                                  left: `${x}px`,
+                                  top: `${y}px`,
+                                  width: `${width}px`,
+                                  height: `${height}px`,
+                                  border: `2px solid ${light.hexColor}`,
+                                  boxShadow: `0 0 5px ${light.hexColor}`,
+                                  borderRadius: '2px',
+                                  pointerEvents: 'none',
+                                }}>
+                                  {/* Light label */}
+                                  {light.label && (
+                                    <div style={{
+                                      background: light.hexColor,
+                                      color: '#fff',
+                                      fontSize: '10px',
+                                      padding: '2px 4px',
+                                      borderRadius: '2px 0 2px 0',
+                                      position: 'absolute',
+                                      top: '0',
+                                      left: '0',
+                                      maxWidth: '100%',
+                                      overflow: 'hidden',
+                                      textShadow: '0 0 2px rgba(0,0,0,0.7)',
+                                      whiteSpace: 'nowrap',
+                                      textOverflow: 'ellipsis'
+                                    }}>
+                                      {light.label}
+                                    </div>
+                                  )}
+                                  
+                                  {/* Light glow effect */}
+                                  <div
+                                    className="absolute inset-0"
+                                    style={{
+                                      background: `radial-gradient(circle, ${lightenColor(light.hexColor)} 0%, transparent 70%)`,
+                                      opacity: glowOpacity,
+                                      mixBlendMode: 'screen',
+                                    }}
+                                  />
+                                </div>
+                              );
+                            } else {
+                              // Light source dot rendering
+                              return (
+                                <div key={index} className="absolute" style={{
+                                  left: `${centerX - radius}px`,
+                                  top: `${centerY - radius}px`,
+                                  width: `${radius * 2}px`,
+                                  height: `${radius * 2}px`,
+                                  pointerEvents: 'none',
+                                }}>
+                                  {/* Light glow effect */}
+                                  <div
+                                    className="absolute inset-0 rounded-full"
+                                    style={{
+                                      background: `radial-gradient(circle, ${lightenColor(light.hexColor)} 0%, ${light.hexColor}80 70%, ${light.hexColor} 100%)`,
+                                      opacity: glowOpacity + 0.1,
+                                      boxShadow: `0 0 10px 2px ${light.hexColor}`,
+                                    }}
+                                  />
+                                </div>
+                              );
+                            }
+                          })}
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="w-full h-[50vh] bg-gray-700 flex items-center justify-center text-gray-400">
                       No image available
-                    </div>
-                  )}
-                  
-                  {/* Light overlay */}
-                  {showLights && lightSources.length > 0 && imageSize.width > 0 && (
-                    <div 
-                      className="absolute pointer-events-none"
-                      style={{ 
-                        width: `${imageSize.width}px`, 
-                        height: `${imageSize.height}px`,
-                        left: imageSize.left || 0,
-                        top: imageSize.top || 0,
-                        // Add red border for debugging
-                        border: '1px dashed rgba(255,0,0,0.2)'
-                      }}
-                    >
-                      {lightSources.map((light, index) => {
-                        // IMPORTANT: No scaling - use raw pixel values directly
-                        // BUT we need to account for when the image is displayed smaller than 1024x1024
-                        const displayRatio = imageSize.width / 1024;
-                        
-                        // Apply the ratio to position and size
-                        const x = light.x * displayRatio;
-                        const y = light.y * displayRatio;
-                        const width = light.width * displayRatio;
-                        const height = light.height * displayRatio;
-                        
-                        // Calculate center point
-                        const centerX = x + (width / 2);
-                        const centerY = y + (height / 2);
-                        
-                        // Calculate radius
-                        const radius = Math.max(width, height) / 2;
-                        const solidRadius = radius * 0.3;
-                        
-                        // Log coordinates for debugging
-                        console.log(`Light #${index}: pos(${x.toFixed(0)},${y.toFixed(0)}), actual light pos(${light.x},${light.y}), ratio: ${displayRatio}`);
-                        
-                        // Determine light type
-                        const isWarmLight = light.hexColor.toLowerCase().includes('f');
-                        const glowOpacity = isWarmLight ? 0.6 : 0.5;
-                        const glowSize = isWarmLight ? '60%' : '70%';
-                        const mixMode = isWarmLight ? 'screen' : 'lighten';
-                        
-                        return (
-                          <div key={index} className="absolute" style={{
-                            left: `${centerX - radius}px`,
-                            top: `${centerY - radius}px`,
-                            width: `${radius * 2}px`,
-                            height: `${radius * 2}px`,
-                            pointerEvents: 'none',
-                          }}>
-                            {/* Outer glow */}
-                            <div
-                              className="absolute inset-0 rounded-full"
-                              style={{
-                                background: `radial-gradient(circle, ${lightenColor(light.hexColor)} 0%, transparent ${glowSize})`,
-                                opacity: glowOpacity,
-                                boxShadow: `0 0 15px 5px ${lightenColor(light.hexColor)}`,
-                                mixBlendMode: mixMode,
-                              }}
-                            />
-                            
-                            {/* Inner solid color */}
-                            <div
-                              className="absolute rounded-full"
-                              style={{
-                                left: `${radius - solidRadius}px`,
-                                top: `${radius - solidRadius}px`,
-                                width: `${solidRadius * 2}px`,
-                                height: `${solidRadius * 2}px`,
-                                backgroundColor: light.hexColor,
-                                opacity: 0.8,
-                                mixBlendMode: 'lighten',
-                              }}
-                            />
-                          </div>
-                        );
-                      })}
                     </div>
                   )}
                 </div>
@@ -508,6 +567,7 @@ export default function Home() {
                                       style={{ backgroundColor: light.hexColor }}
                                     ></div>
                                     <span>{light.hexColor}</span>
+                                    {light.label && <span className="ml-2 text-gray-400">({light.label})</span>}
                                   </div>
                                 </td>
                               </tr>
@@ -528,6 +588,7 @@ export default function Home() {
                         <ul className="list-disc ml-5 mt-2 space-y-1">
                           <li>Position coordinates (x, y) normalized from 0-1</li>
                           <li>Size dimensions (width, height) normalized from 0-1</li>
+                          <li>A label describing the type of light source (torch, magic, etc.)</li>
                           <li>A hexadecimal color code approximating the light source color</li>
                         </ul>
                       </div>
