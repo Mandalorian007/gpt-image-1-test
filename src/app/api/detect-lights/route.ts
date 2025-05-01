@@ -4,14 +4,14 @@ import { GoogleGenAI, createUserContent } from '@google/genai';
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 // More robust JSON extraction function
-function extractJsonFromText(text: string): any[] {
+function extractJsonFromText(text: string): Record<string, unknown>[] {
   // Try direct parsing first
   try {
     const parsed = JSON.parse(text.trim());
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (e) {
+  } catch {
     // Continue to regex methods if direct parsing fails
   }
   
@@ -24,7 +24,7 @@ function extractJsonFromText(text: string): any[] {
     if (match && match[0]) {
       return JSON.parse(match[0]);
     }
-  } catch (e) {
+  } catch {
     // Continue if this method fails
   }
   
@@ -37,7 +37,7 @@ function extractJsonFromText(text: string): any[] {
       const jsonText = text.substring(startIdx, endIdx + 1);
       return JSON.parse(jsonText);
     }
-  } catch (e) {
+  } catch {
     // If all methods fail, return empty array
   }
   
@@ -115,7 +115,7 @@ IMPORTANT: Return ONLY a valid JSON array. No explanation text, no code blocks.`
     const responseText = response.text || '';
     
     // Extract JSON from the response text
-    let parsedResult = extractJsonFromText(responseText);
+    const parsedResult = extractJsonFromText(responseText);
     
     // Process normalized box_2d coordinates from Gemini
     if (parsedResult && Array.isArray(parsedResult) && parsedResult.length > 0) {

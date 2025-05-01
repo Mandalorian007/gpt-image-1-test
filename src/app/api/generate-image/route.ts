@@ -28,47 +28,6 @@ Aesthetic and storytelling goals:
 	• Use lighting, shading, and detail to reinforce the tone and story of the space
 	• Do not include visible gridlines, text labels, characters, monsters, or tokens — focus purely on the environmental and architectural design`;
 
-// More robust JSON extraction function
-function extractJsonFromText(text: string): any[] {
-  // Try direct parsing first
-  try {
-    const parsed = JSON.parse(text.trim());
-    if (Array.isArray(parsed)) {
-      return parsed;
-    }
-  } catch (e) {
-    // Continue to regex methods if direct parsing fails
-  }
-  
-  // Try to find JSON array with regex
-  try {
-    // Look for text that starts with [ and ends with ]
-    const jsonRegex = /\[\s*{[\s\S]*}\s*\]/;
-    const match = text.match(jsonRegex);
-    
-    if (match && match[0]) {
-      return JSON.parse(match[0]);
-    }
-  } catch (e) {
-    // Continue if this method fails
-  }
-  
-  // Try a more permissive approach - look for anything between brackets
-  try {
-    const startIdx = text.indexOf('[');
-    const endIdx = text.lastIndexOf(']');
-    
-    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-      const jsonText = text.substring(startIdx, endIdx + 1);
-      return JSON.parse(jsonText);
-    }
-  } catch (e) {
-    // If all methods fail, return empty array
-  }
-  
-  return [];
-}
-
 /**
  * Generate an enhanced prompt using GPT-4o
  */

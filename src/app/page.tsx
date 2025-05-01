@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, FormEvent, useRef, useEffect } from 'react';
-import Image from 'next/image';
 
 // Type for a light source
 type LightSource = {
@@ -257,7 +256,7 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <h1 className="text-4xl font-bold text-center mb-2">D&D Battlemap Generator</h1>
         <p className="text-gray-400 text-center mb-8">
-          Generate hand-drawn style top-down 2D dungeon battlemaps using OpenAI's GPT-Image-1
+          Generate hand-drawn style top-down 2D dungeon battlemaps using OpenAI&apos;s GPT-Image-1
         </p>
         
         {/* Input and History Section */}
@@ -317,7 +316,7 @@ export default function Home() {
                           <div className="overflow-hidden flex-1">
                             <p className="text-sm font-medium truncate text-white">{item.prompt}</p>
                             <p className="text-xs text-gray-400">
-                              {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                              {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString()}
                             </p>
                           </div>
                         </button>
@@ -478,9 +477,6 @@ export default function Home() {
                           }}
                         >
                           {lightSources.map((light, index) => {
-                            // Calculate scale ratio to convert from 1024x1024 to current display size
-                            const displayRatio = imageSize.width / 1024;
-                            
                             // Apply the ratio to position and size
                             const x = light.x * imageSize.width;
                             const y = light.y * imageSize.height;
