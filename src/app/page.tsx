@@ -3,6 +3,15 @@
 import { useState, FormEvent, useRef, useEffect } from 'react';
 import Image from 'next/image';
 
+// Type for a light source
+type LightSource = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  hexColor: string;
+};
+
 // Type for a single generation
 type Generation = {
   id: string;
@@ -10,9 +19,11 @@ type Generation = {
   imageData: string;
   finalPrompt: string;
   userDescription: string;
+  lightSources: LightSource[];
   timings: {
     promptGeneration: number;
     imageGeneration: number;
+    lightDetection: number;
     total: number;
   };
   timestamp: Date;
@@ -25,9 +36,13 @@ export default function Home() {
   const [imageData, setImageData] = useState<string | null>(null);
   const [finalPrompt, setFinalPrompt] = useState<string | null>(null);
   const [userDescription, setUserDescription] = useState<string | null>(null);
+  const [lightSources, setLightSources] = useState<LightSource[]>([]);
+  const [lightError, setLightError] = useState<string | null>(null);
+  const [showLights, setShowLights] = useState(true);
   const [timings, setTimings] = useState<{
     promptGeneration: number;
     imageGeneration: number;
+    lightDetection: number;
     total: number;
   } | null>(null);
   const [activeTab, setActiveTab] = useState('image');
@@ -35,6 +50,37 @@ export default function Home() {
   const [selectedGeneration, setSelectedGeneration] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+
+  // Update image size when it loads
+  useEffect(() => {
+    if (imageData && imageContainerRef.current) {
+      const updateImageSize = () => {
+        const img = imageContainerRef.current?.querySelector('img');
+        if (img) {
+          const { width, height } = img.getBoundingClientRect();
+          setImageSize({ width, height });
+        }
+      };
+      
+      // Initial check
+      updateImageSize();
+      
+      // Set up observer for changes
+      const resizeObserver = new ResizeObserver(updateImageSize);
+      const img = imageContainerRef.current.querySelector('img');
+      if (img) {
+        resizeObserver.observe(img);
+        img.onload = updateImageSize;
+      }
+      
+      return () => {
+        if (img) resizeObserver.unobserve(img);
+        resizeObserver.disconnect();
+      };
+    }
+  }, [imageData, activeTab]);
 
   // Close history dropdown when clicking outside
   useEffect(() => {
@@ -72,9 +118,12 @@ export default function Home() {
         throw new Error(data.error || 'Failed to generate image');
       }
       
-      setImageData(data.imageData);
-      setFinalPrompt(data.finalPrompt);
-      setUserDescription(data.userDescription);
+      setImageData(data.imageData || null);
+      setFinalPrompt(data.finalPrompt || null);
+      setUserDescription(data.userDescription || null);
+      setLightSources(data.lightSources || []);
+      setLightError(data.lightError || null);
+      setShowLights(true);
       setTimings(data.timings);
       setActiveTab('image');
       
@@ -82,9 +131,10 @@ export default function Home() {
       const newGeneration: Generation = {
         id: Date.now().toString(),
         prompt,
-        imageData: data.imageData,
-        finalPrompt: data.finalPrompt,
-        userDescription: data.userDescription,
+        imageData: data.imageData || '',
+        finalPrompt: data.finalPrompt || '',
+        userDescription: data.userDescription || '',
+        lightSources: data.lightSources || [],
         timings: data.timings,
         timestamp: new Date()
       };
@@ -105,11 +155,31 @@ export default function Home() {
       setImageData(selected.imageData);
       setFinalPrompt(selected.finalPrompt);
       setUserDescription(selected.userDescription);
+      setLightSources(selected.lightSources || []);
       setTimings(selected.timings);
       setSelectedGeneration(id);
       setActiveTab('image');
       setHistoryOpen(false); // Close dropdown after selection
     }
+  };
+
+  // Helper to lighten a color for the glow effect
+  const lightenColor = (hexColor: string): string => {
+    // Remove # if present
+    hexColor = hexColor.replace('#', '');
+    
+    // Parse the hex values
+    const r = parseInt(hexColor.substr(0, 2), 16);
+    const g = parseInt(hexColor.substr(2, 2), 16);
+    const b = parseInt(hexColor.substr(4, 2), 16);
+    
+    // Lighten the color
+    const lighterR = Math.min(255, r + 100);
+    const lighterG = Math.min(255, g + 100);
+    const lighterB = Math.min(255, b + 100);
+    
+    // Convert back to hex
+    return `rgba(${lighterR}, ${lighterG}, ${lighterB}, 0.5)`;
   };
 
   return (
@@ -168,7 +238,11 @@ export default function Home() {
                           }`}
                         >
                           <div className="w-16 h-16 flex-shrink-0 mr-2 rounded overflow-hidden">
-                            <img src={item.imageData} alt="Thumbnail" className="w-full h-full object-cover" />
+                            {item.imageData ? (
+                              <img src={item.imageData} alt="Thumbnail" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full bg-gray-600 flex items-center justify-center text-xs text-gray-300">No image</div>
+                            )}
                           </div>
                           <div className="overflow-hidden flex-1">
                             <p className="text-sm font-medium truncate text-white">{item.prompt}</p>
@@ -186,14 +260,35 @@ export default function Home() {
           )}
         </div>
         
-        {/* Generate Button */}
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="w-full mb-8 bg-blue-600 hover:bg-blue-700 text-white font-medium py-4 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loading ? 'Generating Battlemap...' : 'Generate Battlemap'}
-        </button>
+        {/* Generate Button and Timing Info */}
+        <div className="flex items-center mb-8 gap-4">
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-4 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Generating Battlemap...' : 'Generate Battlemap'}
+          </button>
+          
+          {timings && (
+            <div className="flex-shrink-0 flex items-center bg-gray-800 rounded-lg px-3 py-2 text-xs border border-gray-700">
+              <div className="text-blue-400 mr-2">
+                Prompt: {(timings.promptGeneration / 1000).toFixed(1)}s
+              </div>
+              <div className="text-green-400 mx-2">
+                Image: {(timings.imageGeneration / 1000).toFixed(1)}s
+              </div>
+              {timings.lightDetection && (
+                <div className="text-yellow-400 mx-2">
+                  Lights: {(timings.lightDetection / 1000).toFixed(1)}s
+                </div>
+              )}
+              <div className="text-purple-400 ml-2">
+                Total: {(timings.total / 1000).toFixed(1)}s
+              </div>
+            </div>
+          )}
+        </div>
         
         {error && (
           <div className="bg-red-900/60 border border-red-700 text-red-200 px-4 py-3 rounded-lg mb-6">
@@ -204,7 +299,7 @@ export default function Home() {
         {/* Generated content */}
         {imageData && (
           <div className="bg-gray-800 rounded-lg overflow-hidden shadow-lg">
-            {/* Tabs and Timing */}
+            {/* Tabs */}
             <div className="flex border-b border-gray-700">
               <button 
                 onClick={() => setActiveTab('image')}
@@ -222,19 +317,31 @@ export default function Home() {
               >
                 Prompt Details
               </button>
+              <button 
+                onClick={() => setActiveTab('lights')}
+                className={`px-6 py-3 font-medium ${activeTab === 'lights' 
+                  ? 'border-b-2 border-blue-500 text-blue-400' 
+                  : 'text-gray-400 hover:text-gray-200'}`}
+              >
+                Light Details
+              </button>
               
-              {/* Timing info pill */}
-              {timings && (
-                <div className="ml-auto flex items-center mr-4 bg-gray-900 rounded-full px-3 py-1 text-xs">
-                  <div className="text-blue-400 mr-2">
-                    Prompt: {(timings.promptGeneration / 1000).toFixed(1)}s
-                  </div>
-                  <div className="text-green-400 mx-2">
-                    Image: {(timings.imageGeneration / 1000).toFixed(1)}s
-                  </div>
-                  <div className="text-purple-400 ml-2">
-                    Total: {(timings.total / 1000).toFixed(1)}s
-                  </div>
+              {/* Light toggle - simplified styling */}
+              {lightSources.length > 0 && (
+                <div className="ml-auto flex items-center mr-4">
+                  <span className="text-xs font-medium text-gray-400 mr-2">
+                    Show Lights
+                  </span>
+                  <label htmlFor="light-toggle" className="relative inline-block w-9 h-5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      id="light-toggle"
+                      checked={showLights}
+                      onChange={() => setShowLights(!showLights)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-blue-400 after:border-blue-400 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gray-600"></div>
+                  </label>
                 </div>
               )}
             </div>
@@ -242,12 +349,93 @@ export default function Home() {
             {/* Tab content */}
             <div className="p-4">
               {activeTab === 'image' && (
-                <div className="flex justify-center">
-                  <img 
-                    src={imageData} 
-                    alt="Generated Battlemap"
-                    className="max-w-full max-h-[80vh]"
-                  />
+                <div className="flex justify-center relative" ref={imageContainerRef}>
+                  {imageData ? (
+                    <img 
+                      src={imageData} 
+                      alt="Generated Battlemap"
+                      className="max-w-full max-h-[80vh]"
+                    />
+                  ) : (
+                    <div className="w-full h-[50vh] bg-gray-700 flex items-center justify-center text-gray-400">
+                      No image available
+                    </div>
+                  )}
+                  
+                  {/* Light overlay */}
+                  {showLights && lightSources.length > 0 && imageSize.width > 0 && (
+                    <div 
+                      className="absolute top-0 left-0 pointer-events-none"
+                      style={{ width: `${imageSize.width}px`, height: `${imageSize.height}px` }}
+                    >
+                      {lightSources.map((light, index) => {
+                        // Scale coordinates if image is being displayed at a different size
+                        // Claude gives us coords for a 1024x1024 image
+                        const scale = imageSize.width / 1024;
+                        
+                        // Get pixel coordinates directly from API (now in pixels, not normalized)
+                        const x = light.x * scale;
+                        const y = light.y * scale;
+                        const width = light.width * scale;
+                        const height = light.height * scale;
+                        
+                        // Calculate the center point from the top-left coordinates
+                        const centerX = x + (width / 2);
+                        const centerY = y + (height / 2);
+                        
+                        // Use the actual dimensions for radius
+                        const radius = Math.max(width, height) / 2;
+                        // Make sure radius isn't too small
+                        const minRadius = Math.min(imageSize.width, imageSize.height) * 0.025;
+                        const finalRadius = Math.max(radius, minRadius);
+                        const solidRadius = finalRadius * 0.3;
+                        
+                        // For torch-like lights, use a more orange/yellow glow
+                        // For magical lights (blue/green), use a more ethereal effect
+                        const isWarmLight = light.hexColor.toLowerCase().includes('f') && 
+                                          !light.hexColor.toLowerCase().includes('0f');
+                        
+                        const glowOpacity = isWarmLight ? 0.6 : 0.5;
+                        const glowSize = isWarmLight ? '60%' : '70%';
+                        const mixMode = isWarmLight ? 'screen' : 'lighten';
+                        
+                        return (
+                          <div key={index} className="absolute" style={{
+                            left: `${centerX - finalRadius}px`,
+                            top: `${centerY - finalRadius}px`,
+                            width: `${finalRadius * 2}px`,
+                            height: `${finalRadius * 2}px`,
+                            pointerEvents: 'none',
+                          }}>
+                            {/* Outer glow */}
+                            <div
+                              className="absolute inset-0 rounded-full"
+                              style={{
+                                background: `radial-gradient(circle, ${lightenColor(light.hexColor)} 0%, transparent ${glowSize})`,
+                                opacity: glowOpacity,
+                                boxShadow: `0 0 15px 5px ${lightenColor(light.hexColor)}`,
+                                mixBlendMode: mixMode,
+                              }}
+                            />
+                            
+                            {/* Inner solid color */}
+                            <div
+                              className="absolute rounded-full"
+                              style={{
+                                left: `${finalRadius - solidRadius}px`,
+                                top: `${finalRadius - solidRadius}px`,
+                                width: `${solidRadius * 2}px`,
+                                height: `${solidRadius * 2}px`,
+                                backgroundColor: light.hexColor,
+                                opacity: 0.8,
+                                mixBlendMode: 'lighten',
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
               
@@ -264,6 +452,76 @@ export default function Home() {
                     <h3 className="text-lg font-medium mb-2 text-gray-300">Generated Prompt:</h3>
                     <div className="bg-gray-900 p-4 rounded-lg text-gray-300 max-h-[400px] overflow-auto whitespace-pre-wrap">
                       {finalPrompt}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {activeTab === 'lights' && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 gap-4">
+                    <h3 className="text-lg font-medium text-gray-300">Detected Light Sources</h3>
+                    
+                    {lightError && (
+                      <div className="bg-red-900/30 border border-red-800 text-red-300 px-4 py-3 rounded-lg">
+                        <p className="font-medium">Error detecting lights:</p>
+                        <p>{lightError}</p>
+                      </div>
+                    )}
+                    
+                    {lightSources.length > 0 ? (
+                      <div className="bg-gray-900 rounded-lg overflow-hidden">
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="bg-gray-800 text-left">
+                              <th className="p-3 font-medium">#</th>
+                              <th className="p-3 font-medium">Position</th>
+                              <th className="p-3 font-medium">Size</th>
+                              <th className="p-3 font-medium">Color</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lightSources.map((light, index) => (
+                              <tr key={index} className="border-t border-gray-800 hover:bg-gray-800/50">
+                                <td className="p-3">{index + 1}</td>
+                                <td className="p-3">
+                                  <span className="text-blue-400">x:</span> {(light.x * 100).toFixed(1)}%,{' '}
+                                  <span className="text-blue-400">y:</span> {(light.y * 100).toFixed(1)}%
+                                </td>
+                                <td className="p-3">
+                                  <span className="text-blue-400">w:</span> {(light.width * 100).toFixed(1)}%,{' '}
+                                  <span className="text-blue-400">h:</span> {(light.height * 100).toFixed(1)}%
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex items-center">
+                                    <div 
+                                      className="w-6 h-6 mr-2 rounded" 
+                                      style={{ backgroundColor: light.hexColor }}
+                                    ></div>
+                                    <span>{light.hexColor}</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-900 p-4 rounded-lg text-gray-500 text-center">
+                        No light sources were detected in the image.
+                      </div>
+                    )}
+
+                    <div className="mt-6">
+                      <h3 className="text-lg font-medium mb-2 text-gray-300">About Light Detection</h3>
+                      <div className="bg-gray-900 p-4 rounded-lg text-gray-300">
+                        <p>Light sources are detected using Claude 3.7 Sonnet to analyze the image. Each detected light has:</p>
+                        <ul className="list-disc ml-5 mt-2 space-y-1">
+                          <li>Position coordinates (x, y) normalized from 0-1</li>
+                          <li>Size dimensions (width, height) normalized from 0-1</li>
+                          <li>A hexadecimal color code approximating the light source color</li>
+                        </ul>
+                      </div>
                     </div>
                   </div>
                 </div>
