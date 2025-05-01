@@ -33,6 +33,7 @@ type Generation = {
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingLights, setLoadingLights] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageData, setImageData] = useState<string | null>(null);
   const [finalPrompt, setFinalPrompt] = useState<string | null>(null);
@@ -136,12 +137,19 @@ export default function Home() {
       setImageData(data.imageData || null);
       setFinalPrompt(data.finalPrompt || null);
       setUserDescription(data.userDescription || null);
-      setLightSources(data.lightSources || []);
-      setLightError(data.lightError || null);
-      setShowLights(true);
-      setShowAsBoxes(true);
-      setTimings(data.timings);
+      setTimings({
+        promptGeneration: data.timings.promptGeneration,
+        imageGeneration: data.timings.imageGeneration,
+        lightDetection: 0,
+        total: data.timings.total
+      });
+      
       setActiveTab('image');
+      
+      // After generating the image, detect light sources
+      if (data.imageData) {
+        await detectLightSources(data.imageData);
+      }
       
       // Create a new generation and add to history
       const newGeneration: Generation = {
@@ -150,8 +158,13 @@ export default function Home() {
         imageData: data.imageData || '',
         finalPrompt: data.finalPrompt || '',
         userDescription: data.userDescription || '',
-        lightSources: data.lightSources || [],
-        timings: data.timings,
+        lightSources: lightSources,
+        timings: timings || {
+          promptGeneration: data.timings.promptGeneration,
+          imageGeneration: data.timings.imageGeneration,
+          lightDetection: 0,
+          total: data.timings.total
+        },
         timestamp: new Date()
       };
       
@@ -162,6 +175,47 @@ export default function Home() {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const detectLightSources = async (imgData: string) => {
+    setLoadingLights(true);
+    setLightError(null);
+    
+    try {
+      const response = await fetch('/api/detect-lights', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ imageData: imgData }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to detect light sources');
+      }
+      
+      setLightSources(data.lightSources || []);
+      setLightError(data.lightError || null);
+      setShowLights(true);
+      setShowAsBoxes(true);
+      
+      // Update timings
+      if (timings) {
+        const updatedTimings = { 
+          ...timings,
+          lightDetection: data.timeTaken || 0,
+          total: (timings.promptGeneration + timings.imageGeneration + (data.timeTaken || 0))
+        };
+        setTimings(updatedTimings);
+      }
+      
+    } catch (err) {
+      setLightError(err instanceof Error ? err.message : 'An unexpected error occurred during light detection');
+    } finally {
+      setLoadingLights(false);
     }
   };
   
@@ -286,6 +340,16 @@ export default function Home() {
             {loading ? 'Generating Battlemap...' : 'Generate Battlemap'}
           </button>
           
+          {imageData && (
+            <button
+              onClick={() => detectLightSources(imageData)}
+              disabled={loadingLights || loading}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-medium py-4 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loadingLights ? 'Detecting Lights...' : 'Regenerate Lights'}
+            </button>
+          )}
+          
           {timings && (
             <div className="flex-shrink-0 flex items-center bg-gray-800 rounded-lg px-3 py-2 text-xs border border-gray-700">
               <div className="text-blue-400 mr-2">
@@ -294,7 +358,7 @@ export default function Home() {
               <div className="text-green-400 mx-2">
                 Image: {(timings.imageGeneration / 1000).toFixed(1)}s
               </div>
-              {timings.lightDetection && (
+              {timings.lightDetection > 0 && (
                 <div className="text-yellow-400 mx-2">
                   Lights: {(timings.lightDetection / 1000).toFixed(1)}s
                 </div>
@@ -309,6 +373,12 @@ export default function Home() {
         {error && (
           <div className="bg-red-900/60 border border-red-700 text-red-200 px-4 py-3 rounded-lg mb-6">
             {error}
+          </div>
+        )}
+        
+        {lightError && (
+          <div className="bg-amber-900/60 border border-amber-700 text-amber-200 px-4 py-3 rounded-lg mb-6">
+            <strong>Light Detection Error:</strong> {lightError}
           </div>
         )}
         

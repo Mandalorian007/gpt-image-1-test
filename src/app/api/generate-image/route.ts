@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
-import { GoogleGenAI, createUserContent } from '@google/genai';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 const BATTLEMAP_PROMPT_TEMPLATE = `Generate a high-resolution, hand-drawn style top-down 2D dungeon battlemap optimized for virtual tabletops (e.g., Roll20, FoundryVTT).
 
@@ -116,135 +112,6 @@ async function generateImage(prompt: string): Promise<string | null> {
   return b64Image ? `data:image/png;base64,${b64Image}` : null;
 }
 
-/**
- * Detect light sources in an image using Gemini
- */
-async function geminiGenerateLights(b64Image: string | null): Promise<{
-  lightSources: Array<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    hexColor: string;
-  }>;
-  lightError: string | null;
-}> {
-  let lightSources: Array<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    hexColor: string;
-  }> = [];
-  let lightError = null;
-  
-  if (!b64Image) {
-    return {
-      lightSources: [],
-      lightError: "No image data available for light detection"
-    };
-  }
-  
-  try {
-    // Make sure we have a valid base64 string
-    let processedB64 = b64Image;
-    // Remove any data URL prefix if it somehow got included
-    if (processedB64.includes(',')) {
-      processedB64 = processedB64.split(',')[1];
-    }
-    
-    // Prompt to detect light sources and return bounding boxes
-    const lightDetectionPrompt = `Analyze this image and extract all light sources (torches, magical object glows, fires, crystals, runes, etc).
-
-Return a JSON array with each light source having:
-1. A "box_2d" property with coordinates [ymin, xmin, ymax, xmax] normalized to 0-1000
-2. A "label" property describing the type of light source (e.g. "torch", "magical crystal", "glowing rune")
-3. A "hexColor" property with the dominant color in standard hex format (e.g. "#FF9900")
-
-Example: [
-  {"box_2d": [200, 300, 250, 350], "label": "torch", "hexColor": "#FF9900"},
-  {"box_2d": [500, 600, 550, 650], "label": "magic crystal", "hexColor": "#00CCFF"}
-]
-
-IMPORTANT: Return ONLY a valid JSON array. No explanation text, no code blocks.`;
-
-    // Using the correct structure for the @google/genai package
-    const response = await genAI.models.generateContent({
-      model: "gemini-2.5-flash-preview-04-17", //"gemini-2.0-flash",
-      contents: createUserContent([
-        {
-          inlineData: {
-            mimeType: "image/png",
-            data: processedB64
-          }
-        },
-        lightDetectionPrompt
-      ]),
-    });
-    
-    const responseText = response.text || '';
-    
-    // Extract JSON from the response text
-    let parsedResult = extractJsonFromText(responseText);
-    
-    // Process normalized box_2d coordinates from Gemini
-    if (parsedResult && Array.isArray(parsedResult) && parsedResult.length > 0) {
-      lightSources = parsedResult.map(item => {
-        // Check if we have the expected box_2d format
-        if (Array.isArray(item.box_2d) && item.box_2d.length === 4) {
-          const [ymin, xmin, ymax, xmax] = item.box_2d;
-          
-          // Convert from 0-1000 normalized coordinates to 0-1 normalized
-          return {
-            x: xmin / 1000,
-            y: ymin / 1000,
-            width: (xmax - xmin) / 1000,
-            height: (ymax - ymin) / 1000,
-            label: item.label || "Unknown light source",
-            hexColor: item.hexColor || "#FFAA00" // Default to amber if no color provided
-          };
-        }
-        
-        // Handle case where we might get direct x,y,width,height format (for backward compatibility)
-        if (typeof item.x === 'number' && typeof item.y === 'number' && 
-            typeof item.width === 'number' && typeof item.height === 'number') {
-          return {
-            x: item.x / 1024, // Normalize to 0-1
-            y: item.y / 1024,
-            width: item.width / 1024,
-            height: item.height / 1024,
-            label: item.label || "Unknown light source",
-            hexColor: item.hexColor || "#FFAA00"
-          };
-        }
-        
-        console.error("Invalid light source data:", item);
-        return null;
-      }).filter(Boolean) as Array<{
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        label: string;
-        hexColor: string;
-      }>;
-    }
-    
-    if (lightSources.length === 0) {
-      lightError = "No light sources detected or unable to parse JSON response from Gemini";
-    }
-  } catch (err) {
-    console.error("Error detecting lights with Gemini:", err);
-    lightSources = [];
-    lightError = "Gemini API error: " + (err instanceof Error ? err.message : String(err));
-  }
-  
-  return {
-    lightSources,
-    lightError
-  };
-}
-
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
@@ -262,30 +129,17 @@ export async function POST(request: NextRequest) {
     const imageEndTime = Date.now();
     const imageTimeTaken = imageEndTime - imageStartTime;
     
-    // Step 3: Detect light sources
-    const lightsStartTime = Date.now();
-    // Choose which light detection method to use (Claude or Gemini)
-    
-    // Use Gemini for light detection by default
-    const lightResult = await geminiGenerateLights(imageData?.split(',')[1] || null);
-    
-    const lightsEndTime = Date.now();
-    const lightsTimeTaken = lightsEndTime - lightsStartTime;
-    
     // Calculate total time
-    const totalTime = promptTimeTaken + imageTimeTaken + lightsTimeTaken;
+    const totalTime = promptTimeTaken + imageTimeTaken;
     
-    // Return all results
+    // Return results without light sources
     return NextResponse.json({ 
       imageData,
       finalPrompt,
       userDescription: prompt,
-      lightSources: lightResult.lightSources,
-      lightError: lightResult.lightError,
       timings: {
         promptGeneration: promptTimeTaken,
         imageGeneration: imageTimeTaken,
-        lightDetection: lightsTimeTaken,
         total: totalTime
       }
     });
