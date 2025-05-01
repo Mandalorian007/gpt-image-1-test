@@ -260,8 +260,8 @@ export default function Home() {
         </p>
         
         {/* Input and History Section */}
-        <div className="flex mb-8 gap-4 items-start">
-          <div className="flex-1">
+        <div className="flex mb-4 gap-4 items-start">
+          <div className="flex-1 flex flex-col">
             <label htmlFor="prompt" className="block text-lg font-medium mb-2">
               Describe your battlemap scene/setting:
             </label>
@@ -270,23 +270,23 @@ export default function Home() {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="Examples: 'Ancient forgotten temple with overgrown vegetation' or 'Dwarven forge inside a volcano'"
-              className="w-full p-4 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 min-h-[120px]"
+              className="w-full p-4 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 min-h-[160px]"
               required
             />
           </div>
           
-          {/* History Dropdown */}
-          {history.length > 0 && (
+          <div className="flex-shrink-0 flex flex-col gap-3" style={{ minWidth: '240px' }}>
+            {/* History Dropdown */}
             <div className="relative" ref={historyRef}>
               <button 
-                className="bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium px-4 py-3 rounded-lg flex items-center gap-2"
+                className="bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium px-4 py-3 rounded-lg flex items-center gap-2 w-full"
                 onClick={() => setHistoryOpen(!historyOpen)}
               >
                 <span>History</span>
                 <span className="bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                  {history.length}
+                  {history.length || 0}
                 </span>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <svg className="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
                 </svg>
               </button>
@@ -295,41 +295,70 @@ export default function Home() {
                 <div className="absolute right-0 mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-20">
                   <div className="p-2 max-h-96 overflow-y-auto custom-scrollbar">
                     <h3 className="uppercase text-xs font-bold text-gray-400 mb-2 px-2">Generation History</h3>
-                    <div className="space-y-2">
-                      {history.map((item) => (
-                        <button
-                          key={item.id}
-                          onClick={() => loadFromHistory(item.id)}
-                          className={`w-full text-left rounded-lg overflow-hidden transition flex items-start p-2 hover:bg-gray-700 ${
-                            selectedGeneration === item.id 
-                              ? 'bg-gray-700 ring-1 ring-blue-500' 
-                              : ''
-                          }`}
-                        >
-                          <div className="w-16 h-16 flex-shrink-0 mr-2 rounded overflow-hidden">
-                            {item.imageData ? (
-                              <img src={item.imageData} alt="Thumbnail" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full bg-gray-600 flex items-center justify-center text-xs text-gray-300">No image</div>
-                            )}
-                          </div>
-                          <div className="overflow-hidden flex-1">
-                            <p className="text-sm font-medium truncate text-white">{item.prompt}</p>
-                            <p className="text-xs text-gray-400">
-                              {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString()}
-                            </p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+                    {history.length > 0 ? (
+                      <div className="space-y-2">
+                        {history.map((item) => (
+                          <button
+                            key={item.id}
+                            onClick={() => loadFromHistory(item.id)}
+                            className={`w-full text-left rounded-lg overflow-hidden transition flex items-start p-2 hover:bg-gray-700 ${
+                              selectedGeneration === item.id 
+                                ? 'bg-gray-700 ring-1 ring-blue-500' 
+                                : ''
+                            }`}
+                          >
+                            <div className="w-16 h-16 flex-shrink-0 mr-2 rounded overflow-hidden">
+                              {item.imageData ? (
+                                <img src={item.imageData} alt="Thumbnail" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full bg-gray-600 flex items-center justify-center text-xs text-gray-300">No image</div>
+                              )}
+                            </div>
+                            <div className="overflow-hidden flex-1">
+                              <p className="text-sm font-medium truncate text-white">{item.prompt}</p>
+                              <p className="text-xs text-gray-400">
+                                {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString()}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center p-4 text-gray-400 text-sm">
+                        No generations yet
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
             </div>
-          )}
+            
+            {/* Timing Info */}
+            <div className="bg-gray-800 rounded-lg p-3 border border-gray-700 flex flex-col">
+              <h3 className="text-xs font-medium text-gray-400 mb-2 uppercase">Timings</h3>
+              <div className="flex flex-col text-xs gap-1">
+                <div className="flex justify-between">
+                  <span className="text-blue-400">Prompt:</span>
+                  <span>{timings ? (timings.promptGeneration / 1000).toFixed(1) + 's' : '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-green-400">Image:</span>
+                  <span>{timings ? (timings.imageGeneration / 1000).toFixed(1) + 's' : '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-yellow-400">Lights:</span>
+                  <span>{timings && timings.lightDetection > 0 ? (timings.lightDetection / 1000).toFixed(1) + 's' : '-'}</span>
+                </div>
+                <div className="flex justify-between font-medium pt-1 border-t border-gray-700 mt-1">
+                  <span className="text-purple-400">Total:</span>
+                  <span>{timings ? (timings.total / 1000).toFixed(1) + 's' : '-'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         
-        {/* Generate Button and Timing Info */}
+        {/* Generate Button Section */}
         <div className="flex items-center mb-8 gap-4">
           <button
             onClick={handleSubmit}
@@ -347,25 +376,6 @@ export default function Home() {
             >
               {loadingLights ? 'Detecting Lights...' : 'Regenerate Lights'}
             </button>
-          )}
-          
-          {timings && (
-            <div className="flex-shrink-0 flex items-center bg-gray-800 rounded-lg px-3 py-2 text-xs border border-gray-700">
-              <div className="text-blue-400 mr-2">
-                Prompt: {(timings.promptGeneration / 1000).toFixed(1)}s
-              </div>
-              <div className="text-green-400 mx-2">
-                Image: {(timings.imageGeneration / 1000).toFixed(1)}s
-              </div>
-              {timings.lightDetection > 0 && (
-                <div className="text-yellow-400 mx-2">
-                  Lights: {(timings.lightDetection / 1000).toFixed(1)}s
-                </div>
-              )}
-              <div className="text-purple-400 ml-2">
-                Total: {(timings.total / 1000).toFixed(1)}s
-              </div>
-            </div>
           )}
         </div>
         
@@ -417,7 +427,7 @@ export default function Home() {
                   {/* Show Lights Toggle */}
                   <div className="flex items-center">
                     <span className="text-xs font-medium text-gray-400 mr-2">
-                      Show Lights
+                      Lights
                     </span>
                     <label htmlFor="light-toggle" className="relative inline-block w-9 h-5 cursor-pointer">
                       <input
@@ -435,7 +445,7 @@ export default function Home() {
                   {showLights && (
                     <div className="flex items-center">
                       <span className="text-xs font-medium text-gray-400 mr-2">
-                        Show as Boxes
+                        Boxes
                       </span>
                       <label htmlFor="box-toggle" className="relative inline-block w-9 h-5 cursor-pointer">
                         <input
